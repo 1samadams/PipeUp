@@ -5,23 +5,30 @@
  * composer text, the reveal stepper, a pending vote) lives in `ui` and survives
  * re-renders. Game decisions are never made here. */
 
-// ── static content (the question deck + accent emoji, lifted from the design) ──
-const PROMPTS = [
-  "What's the most useless talent you have?",
-  "Describe your job to a 5-year-old, badly.",
-  "What's a hill you'll die on at work?",
-  "Most chaotic thing in your camera roll right now?",
-  "If our team was a snack, what snack are we?",
-  "Worst advice you've ever given with full confidence?",
-  "What would your villain origin story be?",
-  "Pitch a terrible app idea in one line.",
-];
+// ── static content ──
+// The question deck is loaded from /questions.json at runtime (see DECK below);
+// the host picks one and only the chosen text is sent to the server.
 const ACCENTS = ["😂", "🔥", "💯", "🤔", "🫠", "😎", "🎯", "🤡"];
 const PALETTE = ["#FF5A36", "#1FB8A6", "#FFC53D", "#9B5DE5"];
+const CATEGORY_LABELS = { all: 'All', icebreaker: 'Icebreaker', confession: 'Confession',
+  hot_take: 'Hot Take', chaos: 'Chaos', favorites: 'Favorites' };
 const RANK_TITLES = [
-  "🏆 Top of the Pile", "🥈 Comedy Silver", "🥉 Reliably Funny",
-  "📈 Solid Mid", "🦗 Crickets",
+  { emoji: '🏆', label: 'Top of the Pile' },
+  { emoji: '🥈', label: 'Comedy Silver' },
+  { emoji: '🥉', label: 'Reliably Funny' },
+  { emoji: '📈', label: 'Solid Mid' },
+  { emoji: '🦗', label: 'Crickets' },
 ];
+
+// Fluent 3D emoji graphics (vendored in /assets/emoji, keyed by codepoint) so
+// icons render identically on every device instead of each OS's emoji font.
+const EMOJI = {
+  '😂': '1f602', '🔥': '1f525', '💯': '1f4af', '🤔': '1f914', '🫠': '1fae0',
+  '😎': '1f60e', '🎯': '1f3af', '🤡': '1f921', '🏆': '1f3c6', '🥇': '1f947',
+  '🥈': '1f948', '🥉': '1f949', '📈': '1f4c8', '🦗': '1f997', '🎲': '1f3b2',
+  '📲': '1f4f2', '🔒': '1f512', '👀': '1f440', '🗳': '1f5f3', '👑': '1f451',
+  '🎉': '1f389', '🏅': '1f3c5',
+};
 
 // ── small helpers ──
 function colorFor(name) {
@@ -58,6 +65,15 @@ function avatar(name, size = 34) {
     style: `width:${size}px;height:${size}px;font-size:${size * 0.42}px;background:${colorFor(name)}`,
   }, initialOf(name));
 }
+// Render a Fluent emoji graphic sized to `px`; falls back to the raw glyph for
+// any codepoint we didn't vendor (e.g. the ✓ dingbat stays text).
+function icon(ch, px) {
+  const key = [...(ch || '')].filter((c) => c.codePointAt(0) !== 0xFE0F).join('');
+  const cp = EMOJI[key];
+  if (!cp) return document.createTextNode(ch || '');
+  return h('img', { class: 'pu-emoji', src: `/assets/emoji/${cp}.png`, alt: ch,
+    style: px ? `width:${px}px;height:${px}px` : '' });
+}
 
 // ── identity / session ──
 function clientId() {
@@ -74,9 +90,20 @@ const getName = () => (sessionStorage.getItem('pu_name') || '').trim();
 
 // ── transient local UI state ──
 const ui = { writeText: '', writeAccent: null, revealIdx: 0, flipped: false,
-             vote: null, pickIdx: 0, custom: '' };
+             vote: null, pickId: null, category: 'all', custom: '' };
 let lastPhase = null;
 let state = null;
+
+// ── question deck (loaded once; client-side only — the host sends chosen text) ──
+let DECK = { categories: [], questions: [] };
+fetch('/questions.json')
+  .then((r) => r.json())
+  .then((d) => {
+    DECK = d;
+    // If the host is already looking at a picker, redraw with the real deck.
+    if (state && state.isHost && (state.phase === 'lobby' || state.phase === 'score')) render();
+  })
+  .catch(() => {});
 
 // ── socket ──
 const socket = io();
@@ -155,28 +182,53 @@ function renderNameGate() {
 
 // ── the question picker (shared by lobby + scoreboard, host only) ──
 function picker(lockLabel) {
+  const filtered = () =>
+    ui.category === 'all' ? DECK.questions : DECK.questions.filter((q) => q.category === ui.category);
+
   const customInput = h('input', { class: 'pu-input pu-input-lg', placeholder: 'Ask the team something…',
     maxlength: 120, value: ui.custom });
   customInput.addEventListener('input', () => { ui.custom = customInput.value; paintOpts(); });
 
-  const opts = PROMPTS.slice(0, 6).map((p, i) =>
-    h('button', { class: 'pu-prompt-opt', onclick: () => { ui.pickIdx = i; ui.custom = ''; customInput.value = ''; paintOpts(); } }, p));
+  // Category filter chips. Switching category fully redraws the picker.
+  const cats = ['all', ...(DECK.categories || [])];
+  const catRow = h('div', { class: 'pu-cat-row' }, cats.map((c) =>
+    h('button', { class: 'pu-cat' + (ui.category === c ? ' on' : ''),
+      onclick: () => { ui.category = c; ui.pickId = null; render(); } }, CATEGORY_LABELS[c] || c)));
+
+  const list = h('div', { class: 'pu-prompt-list' },
+    filtered().map((q) => h('button', {
+      class: 'pu-prompt-opt' + (ui.pickId === q.id && !ui.custom ? ' on' : ''),
+      onclick: () => { ui.pickId = q.id; ui.custom = ''; customInput.value = ''; paintOpts(); },
+    }, q.text)));
   function paintOpts() {
-    opts.forEach((b, i) => b.className = 'pu-prompt-opt' + (i === ui.pickIdx && !ui.custom ? ' on' : ''));
+    const f = filtered();
+    [...list.children].forEach((b, i) =>
+      b.className = 'pu-prompt-opt' + (f[i] && ui.pickId === f[i].id && !ui.custom ? ' on' : ''));
   }
-  paintOpts();
 
   const shuffle = h('button', { class: 'pu-btn pu-btn-ghost pu-btn-sm',
-    onclick: () => { ui.pickIdx = Math.floor(Math.random() * 6); ui.custom = ''; customInput.value = ''; paintOpts(); } }, '🎲 Shuffle');
+    onclick: () => {
+      const f = filtered();
+      if (!f.length) return;
+      ui.pickId = f[Math.floor(Math.random() * f.length)].id;
+      ui.custom = ''; customInput.value = ''; paintOpts();
+    } }, icon('🎲', 16), ' Shuffle');
 
   const lock = h('button', { class: 'pu-btn pu-btn-coral pu-btn-block pu-cta',
     onclick: () => {
-      const text = ui.custom.trim() || PROMPTS[ui.pickIdx];
+      const sel = DECK.questions.find((q) => q.id === ui.pickId);
+      const text = ui.custom.trim() || (sel && sel.text) || '';
+      if (!text) { toast('Pick a question or write your own.'); return; }
       socket.emit('set_question', { text });
     } }, lockLabel);
 
+  // Deck not loaded (or failed): still allow a custom question.
+  if (!DECK.questions || !DECK.questions.length) {
+    return [h('div', { class: 'pu-hint pu-center' }, 'Loading questions…'), customInput, lock];
+  }
   return [
-    h('div', { class: 'pu-prompt-list' }, opts),
+    catRow,
+    list,
     h('div', { class: 'pu-row pu-row-gap' }, shuffle, h('span', { class: 'pu-or' }, 'or write your own')),
     customInput,
     lock,
@@ -189,8 +241,8 @@ function screenLobby() {
   const copy = h('button', { class: 'pu-btn pu-btn-coral pu-btn-block',
     onclick: () => {
       if (navigator.clipboard) navigator.clipboard.writeText(location.origin + '/r/' + state.code).catch(() => {});
-      copy.textContent = 'Copied! Send it 📲';
-      setTimeout(() => (copy.textContent = 'Copy invite link'), 1600);
+      copy.replaceChildren('Copied! Send it ', icon('📲', 18));
+      setTimeout(() => copy.replaceChildren('Copy invite link'), 1600);
     } }, 'Copy invite link');
 
   const kids = [
@@ -229,29 +281,34 @@ function screenWrite() {
     const count = h('div', { class: 'pu-charcount' }, `${ui.writeText.length}/180`);
     ta.addEventListener('input', () => { ui.writeText = ta.value; count.textContent = `${ta.value.length}/180`; });
 
-    const accents = ACCENTS.map((em) => h('button', {
-      class: 'pu-accent' + (ui.writeAccent === em ? ' on' : ''),
-      onclick: (e) => {
-        ui.writeAccent = ui.writeAccent === em ? null : em;
-        [...e.currentTarget.parentNode.children].forEach((b) =>
-          b.className = 'pu-accent' + (b.textContent === ui.writeAccent ? ' on' : ''));
-      } }, em));
+    const accentRow = h('div', { class: 'pu-accentrow' });
+    ACCENTS.forEach((em) => {
+      const b = h('button', {
+        class: 'pu-accent' + (ui.writeAccent === em ? ' on' : ''),
+        onclick: () => {
+          ui.writeAccent = ui.writeAccent === em ? null : em;
+          [...accentRow.children].forEach((c) =>
+            c.className = 'pu-accent' + (c.dataset.em === ui.writeAccent ? ' on' : ''));
+        } }, icon(em, 26));
+      b.dataset.em = em;
+      accentRow.appendChild(b);
+    });
 
     const submit = h('button', { class: 'pu-btn pu-btn-mint pu-btn-block pu-cta',
       onclick: () => {
         if (!ui.writeText.trim() && !ui.writeAccent) { toast('Write something first.'); return; }
         socket.emit('submit_answer', { text: ui.writeText.trim(), emoji: ui.writeAccent });
-      } }, 'Lock it in 🔒');
+      } }, 'Lock it in ', icon('🔒', 18));
 
     kids.push(
-      h('div', { class: 'pu-card pu-composer' }, ta, h('div', { class: 'pu-accentrow' }, accents), count),
+      h('div', { class: 'pu-card pu-composer' }, ta, accentRow, count),
       submit,
       h('p', { class: 'pu-hint pu-center' }, 'No takebacks. Make it count.'));
   } else {
     const done = new Set(r.answeredIds);
     kids.push(
       h('h2', { class: 'pu-h2 pu-center' }, `${r.answerCount} of ${state.players.length} piped up`),
-      h('p', { class: 'pu-sub-2 pu-center' }, 'Locked in. Waiting on the slow typers 👀'),
+      h('p', { class: 'pu-sub-2 pu-center' }, 'Locked in. Waiting on the slow typers ', icon('👀', 16)),
       h('div', { class: 'pu-waitlist' },
         state.players.map((p) => h('div', { class: 'pu-wait-chip' + (done.has(p.id) ? ' done' : '') },
           avatar(p.name, 26),
@@ -273,7 +330,7 @@ function screenReveal() {
   const answers = state.round.answers || [];
   if (!answers.length) {
     return mount(h('div', { class: 'pu-screen' }, topbar(),
-      h('h2', { class: 'pu-h2 pu-center' }, 'No answers this round 🦗'),
+      h('h2', { class: 'pu-h2 pu-center' }, 'No answers this round ', icon('🦗', 28)),
       state.isHost
         ? h('button', { class: 'pu-btn pu-btn-coral pu-btn-block pu-cta', onclick: () => socket.emit('start_vote') }, 'On to voting →')
         : waitNote('Waiting for the host…')));
@@ -290,8 +347,8 @@ function screenReveal() {
       h('div', { class: 'pu-flip-q' }, '?'),
       h('div', { class: 'pu-flip-tap' }, 'tap to reveal')),
     h('div', { class: 'pu-rc-face pu-rc-back', style: `opacity:${ui.flipped ? 1 : 0}` },
-      a.emoji ? h('div', { class: 'pu-flip-emoji' }, a.emoji) : false,
-      h('div', { class: 'pu-flip-answer' }, a.text || a.emoji || '…'),
+      a.emoji ? h('div', { class: 'pu-flip-emoji' }, icon(a.emoji, 46)) : false,
+      h('div', { class: 'pu-flip-answer' }, a.text || (a.emoji ? '' : '…')),
       h('div', { class: 'pu-flip-author' }, a.isOwn ? '— you!' : '— anonymous')));
 
   function advance() {
@@ -300,9 +357,9 @@ function screenReveal() {
     ui.flipped = false; ui.revealIdx = idx + 1; render();
   }
 
-  const label = !ui.flipped ? 'Reveal 👀'
-    : last ? (state.isHost ? 'On to voting →' : 'Waiting for the host…')
-    : 'Next answer →';
+  const label = !ui.flipped ? ['Reveal ', icon('👀', 18)]
+    : last ? [state.isHost ? 'On to voting →' : 'Waiting for the host…']
+    : ['Next answer →'];
   const btn = h('button', {
     class: 'pu-btn pu-btn-coral pu-btn-block pu-cta',
     onclick: advance,
@@ -326,7 +383,7 @@ function screenVote() {
   if (r.youVoted) {
     const kids = [
       topbar(),
-      h('div', { class: 'pu-megaemoji pu-bob' }, '🗳️'),
+      h('div', { class: 'pu-megaemoji pu-bob' }, icon('🗳️', 64)),
       h('h2', { class: 'pu-h2 pu-center' }, `${r.votedCount} of ${state.players.length} voted`),
       h('p', { class: 'pu-sub-2 pu-center' }, 'Vote locked. Sit tight…'),
     ];
@@ -349,8 +406,8 @@ function screenVote() {
         sel ? h('span', { class: 'pu-vote-check' }, '✓') : false,
         a.isOwn ? h('span', { class: 'pu-vote-own-tag' }, 'no self-votes') : false),
       h('div', { class: 'pu-vote-text' },
-        a.emoji ? h('span', { class: 'pu-vote-emoji' }, a.emoji) : false,
-        a.text || a.emoji || '…'));
+        a.emoji ? h('span', { class: 'pu-vote-emoji' }, icon(a.emoji, 20)) : false,
+        a.text || (a.emoji ? '' : '…')));
     return card;
   });
 
@@ -358,7 +415,7 @@ function screenVote() {
     class: 'pu-btn pu-btn-mint pu-btn-block pu-cta',
     disabled: !ui.vote,
     onclick: () => socket.emit('cast_vote', { answerPlayerId: ui.vote }),
-  }, ui.vote ? 'Lock in my vote 🗳️' : 'Pick one to vote');
+  }, ui.vote ? ['Lock in my vote ', icon('🗳️', 18)] : ['Pick one to vote']);
 
   mount(h('div', { class: 'pu-screen' },
     topbar(),
@@ -377,29 +434,34 @@ function screenScore() {
   const kids = [topbar()];
 
   if (winner) {
+    const byParts = winner.isOwn
+      ? [winner.name + ' ', icon('🎉', 16), ` · ${winner.votes} vote${winner.votes === 1 ? '' : 's'}`]
+      : [`${winner.name} · ${winner.votes} vote${winner.votes === 1 ? '' : 's'}`];
     kids.push(h('div', { class: 'pu-winner-wrap' },
-      h('div', { class: 'pu-winner-crown' }, '👑'),
+      h('div', { class: 'pu-winner-crown' }, icon('👑', 42)),
       h('div', { class: 'pu-lbl pu-center' }, 'Top of the Pile'),
       h('div', { class: 'pu-card pu-winner-card', style: `background:${colorFor(winner.name)}` },
         h('div', { class: 'pu-winner-answer' },
-          winner.emoji ? h('span', { class: 'pu-vote-emoji' }, winner.emoji) : false,
-          winner.text || winner.emoji || '…'),
-        h('div', { class: 'pu-winner-by' },
-          `${winner.isOwn ? winner.name + ' 🎉' : winner.name} · ${winner.votes} vote${winner.votes === 1 ? '' : 's'}`))));
+          winner.emoji ? h('span', { class: 'pu-vote-emoji' }, icon(winner.emoji, 22)) : false,
+          winner.text || (winner.emoji ? '' : '…')),
+        h('div', { class: 'pu-winner-by' }, byParts))));
   }
 
   kids.push(h('div', { class: 'pu-section-lbl' }, 'This round'),
-    h('div', { class: 'pu-roundlist' }, ranked.map((a, i) =>
-      h('div', { class: 'pu-round-row' },
-        h('span', { class: 'pu-round-rank' }, rankTitle(i, ranked.length)),
+    h('div', { class: 'pu-roundlist' }, ranked.map((a, i) => {
+      const rt = rankTitle(i, ranked.length);
+      return h('div', { class: 'pu-round-row' },
+        h('span', { class: 'pu-round-rank' }, icon(rt.emoji, 15), ' ', rt.label),
         h('span', { class: 'pu-round-name' }, a.isOwn ? 'you' : a.name),
-        h('span', { class: 'pu-round-pts' }, `+${points[a.playerId] || 0}`)))));
+        h('span', { class: 'pu-round-pts' }, `+${points[a.playerId] || 0}`));
+    })));
 
   const totals = [...state.players].sort((a, b) => b.score - a.score);
-  kids.push(h('div', { class: 'pu-section-lbl' }, '🏅 Pile Points · all-time'),
+  const medals = ['🥇', '🥈', '🥉'];
+  kids.push(h('div', { class: 'pu-section-lbl' }, icon('🏅', 14), ' Pile Points · all-time'),
     h('div', { class: 'pu-leaderboard' }, totals.map((p, i) =>
       h('div', { class: 'pu-lb-row' + (i === 0 ? ' lead' : '') },
-        h('span', { class: 'pu-lb-medal' }, ['🥇', '🥈', '🥉'][i] || `#${i + 1}`),
+        h('span', { class: 'pu-lb-medal' }, medals[i] ? icon(medals[i], 18) : `#${i + 1}`),
         h('span', { class: 'pu-lb-name' }, p.id === state.you ? `${p.name} (you)` : p.name),
         h('span', { class: 'pu-lb-pts' }, p.score.toLocaleString())))));
 
@@ -442,7 +504,7 @@ function render() {
     if (state.phase === 'write') { ui.writeText = ''; ui.writeAccent = null; }
     if (state.phase === 'reveal') { ui.revealIdx = 0; ui.flipped = false; }
     if (state.phase === 'vote') { ui.vote = null; }
-    if (state.phase === 'lobby' || state.phase === 'score') { ui.pickIdx = 0; ui.custom = ''; }
+    if (state.phase === 'lobby' || state.phase === 'score') { ui.pickId = null; ui.category = 'all'; ui.custom = ''; }
     if (state.phase === 'score') fireConfetti();
     lastPhase = state.phase;
   }
