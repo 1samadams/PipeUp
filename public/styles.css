@@ -251,3 +251,16 @@ body{
 /* host vs. spectator helper */
 .pu-waitnote{margin-top:auto;text-align:center;font-weight:700;font-size:13px;opacity:.6;
   padding:10px 0;}
+
+/* Fluent emoji graphics — per-use pixel size comes from icon(ch, px) inline. */
+.pu-emoji{display:inline-block;vertical-align:-0.18em;width:1em;height:1em;object-fit:contain;}
+.pu-accent{display:grid;place-items:center;padding:0;}
+.pu-round-rank .pu-emoji,.pu-lb-medal .pu-emoji{vertical-align:-0.22em;}
+
+/* question-picker category chips */
+.pu-cat-row{display:flex;flex-wrap:wrap;gap:7px;}
+.pu-cat{font:inherit;font-weight:700;font-size:12.5px;cursor:pointer;
+  border:2.5px solid var(--ink);border-radius:20px;padding:6px 12px;background:var(--card);
+  box-shadow:2px 2px 0 var(--ink);transition:transform .08s,background .15s;}
+.pu-cat:active{transform:translate(2px,2px);box-shadow:none;}
+.pu-cat.on{background:var(--sun);}
