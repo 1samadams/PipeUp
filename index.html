@@ -1,0 +1,1231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pipe Up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shrikhand&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,500&display=swap" rel="stylesheet">
+
+<!--
+  PIPE UP — single-file build
+  Phases: lobby → pick prompt → write → waiting → reveal → vote → scoreboard
+  Multiplayer is mocked (you + 4 bots). In a real build, replace bot logic
+  with live session state synced over a session URL (e.g. pipeup.live/<code>).
+-->
+
+<style>
+  :root{
+    --cream:#FFF3E0;
+    --ink:#241A12;
+    --card:#FFFBF3;
+    --coral:#FF5A36;
+    --mint:#1FB8A6;
+    --sun:#FFC53D;
+    --shadow:6px 6px 0 var(--ink);
+    --shadow-sm:3px 3px 0 var(--ink);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:"DM Sans",sans-serif;
+    color:var(--ink);
+    background:#EADFCB;
+    background-image:radial-gradient(rgba(36,26,18,.16) 1.1px, transparent 1.1px);
+    background-size:22px 22px;
+    background-position:-11px -11px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── stage + phone frame ── */
+  .pu-stage{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    padding:26px 16px;
+  }
+  .pu-phone{
+    width:404px;max-width:100%;height:min(880px,94vh);
+    background:var(--cream);
+    border:3.5px solid var(--ink);border-radius:42px;
+    box-shadow:10px 12px 0 rgba(36,26,18,.55);
+    position:relative;overflow:hidden;display:flex;flex-direction:column;
+  }
+  .pu-phone.dotgrid{
+    background-image:radial-gradient(rgba(36,26,18,.10) 1.1px, transparent 1.1px);
+    background-size:20px 20px;background-position:-10px -10px;background-color:var(--cream);
+  }
+  .pu-notch{
+    position:absolute;top:11px;left:50%;transform:translateX(-50%);
+    width:120px;height:7px;border-radius:7px;background:var(--ink);opacity:.85;z-index:5;
+  }
+  .pu-phone-scroll{
+    flex:1;overflow-y:auto;overflow-x:hidden;padding:34px 20px 26px;
+    scrollbar-width:thin;
+  }
+  .pu-phone-scroll::-webkit-scrollbar{width:7px;}
+  .pu-phone-scroll::-webkit-scrollbar-thumb{background:rgba(36,26,18,.25);border-radius:7px;}
+
+  .pu-screen{display:flex;flex-direction:column;gap:14px;min-height:100%;}
+  .pu-screen-center{justify-content:flex-start;}
+
+  /* ── top bar ── */
+  .pu-topbar{display:flex;align-items:center;justify-content:space-between;
+    font-weight:700;font-size:12px;}
+  .pu-room{display:flex;align-items:center;gap:6px;letter-spacing:.6px;
+    background:var(--ink);color:var(--cream);padding:5px 11px;border-radius:20px;}
+  .pu-room-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);
+    box-shadow:0 0 0 0 var(--mint);animation:puPulse 1.6s infinite;}
+  @keyframes puPulse{0%{box-shadow:0 0 0 0 rgba(31,184,166,.6);}70%{box-shadow:0 0 0 6px rgba(31,184,166,0);}100%{box-shadow:0 0 0 0 rgba(31,184,166,0);}}
+  .pu-round{opacity:.6;text-transform:uppercase;letter-spacing:1px;}
+
+  /* ── type ── */
+  .pu-logo{font-family:"Shrikhand",serif;font-size:54px;line-height:.9;color:var(--coral);
+    text-shadow:3px 3px 0 var(--ink);transform:rotate(-2deg);margin:6px 0 0;letter-spacing:.5px;}
+  .pu-logo span{color:var(--mint);}
+  .pu-sub{font-size:13px;font-weight:600;opacity:.65;margin-bottom:4px;}
+  .pu-sub-2{font-size:13.5px;font-weight:500;opacity:.7;margin-top:-6px;}
+  .pu-h2{font-family:"Shrikhand",serif;font-weight:400;font-size:30px;line-height:1;}
+  .pu-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:2px;opacity:.55;white-space:nowrap;}
+  .pu-section-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.6px;
+    opacity:.6;margin-top:4px;white-space:nowrap;}
+  .pu-hint{font-size:12px;font-weight:500;opacity:.55;}
+  .pu-center{text-align:center;}
+
+  /* ── cards ── */
+  .pu-card{background:var(--card);border:3px solid var(--ink);border-radius:18px;
+    box-shadow:var(--shadow);padding:16px;}
+
+  /* ── buttons ── */
+  .pu-btn{font:inherit;font-weight:700;cursor:pointer;border:2.5px solid var(--ink);
+    border-radius:13px;padding:12px 16px;background:var(--card);color:var(--ink);
+    box-shadow:var(--shadow-sm);transition:transform .08s,box-shadow .08s,background .15s;
+    font-size:15px;}
+  .pu-btn:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink);}
+  .pu-btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none;}
+  .pu-btn-block{width:100%;}
+  .pu-btn-sm{padding:8px 13px;font-size:13px;border-radius:11px;}
+  .pu-btn-coral{background:var(--coral);color:#fff;}
+  .pu-btn-mint{background:var(--mint);color:#fff;}
+  .pu-btn-ghost{background:var(--card);}
+  .pu-cta{margin-top:auto;}
+
+  /* ── rows ── */
+  .pu-row{display:flex;align-items:center;gap:10px;}
+  .pu-row-gap{gap:10px;flex-wrap:wrap;}
+  .pu-or{font-size:12.5px;font-weight:600;opacity:.55;}
+
+  /* ── inputs ── */
+  .pu-input{font:inherit;font-weight:600;border:2.5px solid var(--ink);border-radius:12px;
+    padding:11px 13px;background:var(--card);width:100%;box-shadow:2px 2px 0 var(--ink);}
+  .pu-input:focus{outline:none;border-color:var(--coral);}
+  .pu-input-lg{font-size:15px;}
+
+  /* ── avatar ── */
+  .pu-avatar{border-radius:50%;border:2.5px solid var(--ink);display:grid;place-items:center;
+    font-weight:700;color:#fff;flex:none;}
+
+  /* ── lobby ── */
+  .pu-share{display:flex;flex-direction:column;gap:9px;background:var(--sun);transform:rotate(-.6deg);}
+  .pu-link{font-family:"Shrikhand",serif;font-size:21px;word-break:break-all;}
+  .pu-players{display:flex;flex-wrap:wrap;gap:7px;}
+  .pu-player-chip{display:flex;align-items:center;gap:7px;background:var(--card);
+    border:2.5px solid var(--ink);border-radius:30px;padding:4px 12px 4px 4px;
+    font-weight:700;font-size:13px;box-shadow:2px 2px 0 var(--ink);}
+  .pu-namecard{display:flex;flex-direction:column;gap:8px;}
+
+  /* ── pick prompt ── */
+  .pu-prompt-list{display:flex;flex-direction:column;gap:9px;}
+  .pu-prompt-opt{font:inherit;text-align:left;font-weight:600;font-size:14.5px;cursor:pointer;
+    border:2.5px solid var(--ink);border-radius:14px;padding:13px 14px;background:var(--card);
+    transition:transform .08s,box-shadow .08s,background .15s;line-height:1.25;}
+  .pu-prompt-opt:hover{transform:translateY(-2px);}
+  .pu-prompt-opt.on{background:var(--sun);box-shadow:var(--shadow-sm);}
+
+  /* ── write ── */
+  .pu-prompt-banner{background:var(--coral);color:#fff;border:3px solid var(--ink);
+    border-radius:18px;box-shadow:var(--shadow);padding:16px;transform:rotate(-.5deg);}
+  .pu-prompt-banner .pu-lbl{color:#fff;opacity:.8;}
+  .pu-prompt-text{font-family:"Shrikhand",serif;font-size:24px;line-height:1.06;margin-top:5px;}
+  .pu-composer{display:flex;flex-direction:column;gap:10px;}
+  .pu-textarea{width:100%;font:inherit;font-size:17px;font-weight:500;border:none;resize:none;
+    min-height:96px;background:transparent;color:var(--ink);line-height:1.4;}
+  .pu-textarea:focus{outline:none;}
+  .pu-accentrow{display:flex;flex-wrap:wrap;gap:6px;}
+  .pu-accent{font-size:21px;background:var(--cream);border:2px solid var(--ink);border-radius:11px;
+    width:42px;height:42px;cursor:pointer;line-height:1;transition:transform .08s;}
+  .pu-accent:hover{transform:translateY(-3px) rotate(-7deg);}
+  .pu-accent.on{background:var(--sun);box-shadow:2px 2px 0 var(--ink);transform:translateY(-2px);}
+  .pu-charcount{font-size:11px;font-weight:700;opacity:.45;text-align:right;}
+
+  /* ── waiting ── */
+  .pu-megaemoji{font-size:64px;text-align:center;margin:18px 0 2px;}
+  .pu-bob{animation:puBob 1.4s ease-in-out infinite;}
+  @keyframes puBob{0%,100%{transform:translateY(0) rotate(-6deg);}50%{transform:translateY(-10px) rotate(6deg);}}
+  .pu-waitlist{display:flex;flex-direction:column;gap:8px;margin-top:8px;}
+  .pu-wait-chip{display:flex;align-items:center;gap:9px;background:var(--card);
+    border:2.5px solid var(--ink);border-radius:14px;padding:9px 13px;font-weight:700;font-size:14px;
+    opacity:.5;transition:opacity .3s,box-shadow .2s;}
+  .pu-wait-chip.done{opacity:1;box-shadow:var(--shadow-sm);}
+  .pu-wait-status{margin-left:auto;font-size:12px;font-weight:700;opacity:.6;}
+  .pu-wait-chip.done .pu-wait-status{color:var(--mint);opacity:1;}
+
+  /* ── reveal ── */
+  .pu-reveal-head{display:flex;align-items:center;justify-content:space-between;}
+  .pu-dots{display:flex;gap:5px;}
+  .pu-dot{width:8px;height:8px;border-radius:50%;border:2px solid var(--ink);background:transparent;}
+  .pu-dot.on{background:var(--coral);}
+  .pu-revealcard{position:relative;flex:1;min-height:300px;cursor:pointer;
+    border:3px solid var(--ink);border-radius:20px;box-shadow:var(--shadow);
+    overflow:hidden;transition:background .4s ease;}
+  .pu-rc-face{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:24px;text-align:center;gap:10px;
+    transition:opacity .35s ease;}
+  .pu-rc-back{color:#fff;}
+  .pu-flip-q{font-family:"Shrikhand",serif;font-size:80px;color:var(--ink);opacity:.18;line-height:1;}
+  .pu-flip-tap{font-weight:700;font-size:14px;opacity:.6;letter-spacing:1px;text-transform:uppercase;
+    margin-top:8px;}
+  .pu-flip-emoji{font-size:46px;}
+  .pu-flip-answer{font-family:"Shrikhand",serif;font-size:25px;line-height:1.12;
+    text-shadow:2px 2px 0 rgba(36,26,18,.35);}
+  .pu-flip-author{font-weight:700;font-size:14px;opacity:.95;}
+
+  /* ── vote ── */
+  .pu-vote-list{display:flex;flex-direction:column;gap:10px;}
+  .pu-vote-card{font:inherit;text-align:left;cursor:pointer;background:var(--card);
+    border:3px solid var(--ink);border-radius:16px;padding:13px 14px;
+    box-shadow:var(--shadow-sm);transition:transform .1s,box-shadow .1s;display:flex;
+    flex-direction:column;gap:7px;}
+  .pu-vote-card:hover:not(:disabled){transform:translateY(-2px);}
+  .pu-vote-card.sel{background:var(--mint);color:#fff;box-shadow:var(--shadow);transform:translateY(-2px);}
+  .pu-vote-card.own{opacity:.55;cursor:not-allowed;background:repeating-linear-gradient(45deg,var(--card),var(--card) 8px,#f1e7d4 8px,#f1e7d4 16px);}
+  .pu-vote-top{display:flex;align-items:center;gap:8px;}
+  .pu-vote-name{font-weight:700;font-size:14px;}
+  .pu-vote-check{margin-left:auto;font-weight:800;font-size:16px;}
+  .pu-vote-own-tag{margin-left:auto;font-size:11px;font-weight:700;opacity:.6;text-transform:uppercase;letter-spacing:1px;}
+  .pu-vote-text{font-size:15.5px;font-weight:500;line-height:1.35;}
+  .pu-vote-emoji{font-size:20px;margin-right:5px;}
+
+  /* ── scoreboard ── */
+  .pu-winner-wrap{display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .pu-winner-crown{font-size:42px;animation:puBob 1.6s ease-in-out infinite;}
+  .pu-winner-card{width:100%;color:#fff;text-align:center;display:flex;flex-direction:column;gap:8px;
+    transform:rotate(-1deg);}
+  .pu-winner-answer{font-family:"Shrikhand",serif;font-size:23px;line-height:1.12;
+    text-shadow:2px 2px 0 rgba(36,26,18,.35);}
+  .pu-winner-by{font-weight:700;font-size:14px;}
+  .pu-roundlist{display:flex;flex-direction:column;gap:6px;}
+  .pu-round-row{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;
+    background:var(--card);border:2px solid var(--ink);border-radius:11px;padding:8px 12px;
+    white-space:nowrap;}
+  .pu-round-rank{font-weight:700;flex:none;}
+  .pu-round-name{margin-left:auto;opacity:.6;overflow:hidden;text-overflow:ellipsis;}
+  .pu-round-pts{font-weight:800;color:var(--coral);min-width:54px;text-align:right;}
+  .pu-leaderboard{display:flex;flex-direction:column;gap:7px;}
+  .pu-lb-row{display:flex;align-items:center;gap:10px;background:var(--card);
+    border:2.5px solid var(--ink);border-radius:13px;padding:10px 13px;font-weight:700;
+    box-shadow:2px 2px 0 var(--ink);}
+  .pu-lb-row.lead{background:var(--sun);box-shadow:var(--shadow-sm);}
+  .pu-lb-medal{font-size:18px;min-width:26px;}
+  .pu-lb-name{font-size:14.5px;}
+  .pu-lb-pts{margin-left:auto;font-family:"Shrikhand",serif;font-size:18px;}
+
+  @media (max-width:430px){
+    .pu-phone{border-radius:0;height:100vh;border:none;box-shadow:none;width:100%;}
+    .pu-stage{padding:0;}
+  }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel">
+/* ============================================================
+   tweaks-panel — floating settings panel + controls
+   ============================================================ */
+
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom right;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+  .twk-field{appearance:none;box-sizing:border-box;width:100%;min-width:0;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;overflow-wrap:anywhere}
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-chips{display:flex;gap:6px}
+  .twk-chip{position:relative;appearance:none;flex:1;min-width:0;height:46px;
+    padding:0;border:0;border-radius:6px;overflow:hidden;cursor:default;
+    box-shadow:0 0 0 .5px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.06);
+    transition:transform .12s cubic-bezier(.3,.7,.4,1),box-shadow .12s}
+  .twk-chip:hover{transform:translateY(-1px);
+    box-shadow:0 0 0 .5px rgba(0,0,0,.18),0 4px 10px rgba(0,0,0,.12)}
+  .twk-chip[data-on="1"]{box-shadow:0 0 0 1.5px rgba(0,0,0,.85),0 2px 6px rgba(0,0,0,.15)}
+  .twk-chip>span{position:absolute;top:0;bottom:0;right:0;width:34%;
+    display:flex;flex-direction:column;box-shadow:-1px 0 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i{flex:1;box-shadow:0 -1px 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i:first-child{box-shadow:none}
+  .twk-chip svg{position:absolute;top:6px;left:6px;width:13px;height:13px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+`;
+
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+  }, []);
+  return [values, setTweak];
+}
+
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(clampToViewport) : null;
+    if (ro) { ro.observe(document.documentElement); return () => ro.disconnect(); }
+    window.addEventListener('resize', clampToViewport);
+    return () => window.removeEventListener('resize', clampToViewport);
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel"
+           style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">{children}</div>
+      </div>
+    </>
+  );
+}
+
+function TweakSection({ label }) {
+  return <div className="twk-sect">{label}</div>;
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  const labelLen = (o) => String(typeof o === 'object' ? o.label : o).length;
+  const maxLen = options.reduce((m, o) => Math.max(m, labelLen(o)), 0);
+  const fitsAsSegments = maxLen <= ({ 2: 16, 3: 10 }[options.length] ?? 0);
+
+  if (!fitsAsSegments) {
+    return (
+      <TweakRow label={label}>
+        <select className="twk-field" value={value}
+                onChange={(e) => onChange(e.target.value)}>
+          {options.map((o) => {
+            const v = typeof o === 'object' ? o.value : o;
+            const l = typeof o === 'object' ? o.label : o;
+            return <option key={v} value={v}>{l}</option>;
+          })}
+        </select>
+      </TweakRow>
+    );
+  }
+
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+/* ============================================================
+   pipeup-data — prompts, bots, helpers, confetti
+   ============================================================ */
+
+const PROMPTS = [
+  "What's the most useless talent you have?",
+  "Describe your job to a 5-year-old, badly.",
+  "What's a hill you'll die on at work?",
+  "Most chaotic thing in your camera roll right now?",
+  "If our team was a snack, what snack are we?",
+  "Worst advice you've ever given with full confidence?",
+  "What would your villain origin story be?",
+  "Pitch a terrible app idea in one line.",
+];
+
+const BOTS = [
+  { id: "b1", name: "Dev",   emoji: "😎" },
+  { id: "b2", name: "Sam",   emoji: "🫠" },
+  { id: "b3", name: "Priya", emoji: "🔥" },
+  { id: "b4", name: "Marco", emoji: "🤡" },
+];
+
+const BOT_ANSWERS = {
+  0: [
+    "I can name every Friends episode but forget my own phone number.",
+    "Folding a fitted sheet. Took me 31 years.",
+    "I can guess the runtime of a movie within 2 minutes. Useless. Reliable.",
+    "Making the printer jam by simply walking past it.",
+  ],
+  1: [
+    "I make the computer say yes to the other computers.",
+    "I move boxes on a screen until a grown-up says good job.",
+    "I yell at spreadsheets and sometimes they listen.",
+    "I send emails that say 'circling back' for money.",
+  ],
+  2: [
+    "A hot dog is a taco. I will not be elaborating.",
+    "Replying-all should be a fireable offense.",
+    "The office plant has feelings and we ignore them.",
+    "Cereal is a soup. Cold soup. Breakfast soup.",
+  ],
+  3: [
+    "A screenshot of a text fight I won two years ago.",
+    "47 screenshots of prices I was going to compare but didn't.",
+    "A blurry photo of my screen to remember something I immediately forgot.",
+    "The same meme saved four times from different people.",
+  ],
+  4: [
+    "Trail mix. Everyone picks out the good parts and leaves the raisins.",
+    "Gas station sushi. Adventurous, questionable, somehow still here.",
+    "Those sad little crackers at the bottom of a soup can.",
+    "A Lunchable. Technically functional, weirdly satisfying.",
+  ],
+  5: [
+    "Just be yourself. (Catastrophic.)",
+    "Sleep on it. (Slept on it. Made it worse.)",
+    "The customer is always right. Still cringe every time.",
+    "Just wing it, you'll be fine. Reader: they were not fine.",
+  ],
+  6: [
+    "The printer jammed on my one important print job in 2019.",
+    "My coffee machine made the noise. I knew. I still didn't leave in time.",
+    "The open-plan office with no windows and one sad succulent.",
+    "When Slack added the emoji reaction and I used it on the wrong all-hands.",
+  ],
+  7: [
+    "Uber for apologies. You book someone to say sorry for you.",
+    "LinkedIn but you rate how boring someone's post was.",
+    "An app that detects when you're about to send a risky email and says 'you sure?'",
+    "Tinder for furniture. Swipe right on a couch.",
+  ],
+  generic: [
+    "I'm choosing to keep this one a mystery 🤐",
+    "Pass. But emotionally.",
+    "Whatever Dev said but funnier.",
+    "Drawing a blank, posting anyway.",
+    "Ask me after coffee ☕",
+  ],
+};
+
+function botAnswerFor(promptIndex, botIndex) {
+  const bank = BOT_ANSWERS[promptIndex] || BOT_ANSWERS.generic;
+  return bank[botIndex % bank.length];
+}
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+const PALETTES = {
+  Original:  ["#FF5A36", "#1FB8A6", "#FFC53D", "#9B5DE5"],
+  Bubblegum: ["#FF4D9D", "#3A86FF", "#FFD23F", "#22C55E"],
+  Sunset:    ["#F94144", "#F3722C", "#F9C74F", "#43AA8B"],
+};
+
+function colorFor(name, palette) {
+  const p = palette || PALETTES.Original;
+  const sum = [...(name || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return p[sum % p.length];
+}
+
+const initialOf = (name) => (name || "?").trim().charAt(0).toUpperCase() || "?";
+
+const RANK_TITLES = [
+  "🏆 Top of the Pile",
+  "🥈 Comedy Silver",
+  "🥉 Reliably Funny",
+  "📈 Solid Mid",
+  "🦗 Crickets",
+];
+
+function rankTitle(rank, total) {
+  if (rank === 0) return RANK_TITLES[0];
+  if (rank === total - 1 && total > 2) return RANK_TITLES[4];
+  return RANK_TITLES[Math.min(rank, RANK_TITLES.length - 2)];
+}
+
+function fireConfetti(colors) {
+  const C = colors || PALETTES.Original;
+  const layer = document.createElement("div");
+  layer.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden";
+  document.body.appendChild(layer);
+  const N = 90;
+  for (let i = 0; i < N; i++) {
+    const p = document.createElement("div");
+    const size = 7 + Math.random() * 9;
+    const left = Math.random() * 100;
+    const rot = Math.random() * 360;
+    const dur = 1400 + Math.random() * 1200;
+    const delay = Math.random() * 250;
+    p.style.cssText = `position:absolute;top:-20px;left:${left}vw;width:${size}px;height:${
+      size * (0.5 + Math.random())
+    }px;background:${C[i % C.length]};border:1.5px solid #241A12;border-radius:${
+      Math.random() > 0.5 ? "50%" : "2px"
+    };transform:rotate(${rot}deg);opacity:0;`;
+    layer.appendChild(p);
+    p.animate(
+      [
+        { transform: `translateY(0) rotate(${rot}deg)`, opacity: 1 },
+        { transform: `translateY(105vh) rotate(${rot + 360 + Math.random() * 360}deg)`, opacity: 1 },
+      ],
+      { duration: dur, delay, easing: "cubic-bezier(.3,.6,.5,1)", fill: "forwards" }
+    );
+  }
+  setTimeout(() => layer.remove(), 3200);
+}
+
+/* ============================================================
+   pipeup-screens — one component per game phase
+   ============================================================ */
+
+const { useState, useEffect, useRef } = React;
+
+function Avatar({ name, palette, size = 34 }) {
+  return (
+    <div className="pu-avatar"
+         style={{ width: size, height: size, fontSize: size * 0.42,
+                  background: colorFor(name, palette) }}>
+      {initialOf(name)}
+    </div>
+  );
+}
+
+function TopBar({ g }) {
+  return (
+    <div className="pu-topbar">
+      <div className="pu-room">
+        <span className="pu-room-dot" />
+        PILE · {g.roomCode}
+      </div>
+      <div className="pu-round">Round {g.round}</div>
+    </div>
+  );
+}
+
+/* — 1. Lobby — */
+
+function Lobby({ g, actions }) {
+  const [copied, setCopied] = useState(false);
+  const players = [{ name: g.name || "you", isYou: true }, ...BOTS];
+
+  const copyLink = () => {
+    const url = `pipeup.live/${g.roomCode}`;
+    if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <div className="pu-screen">
+      <TopBar g={g} />
+      <div className="pu-logo">PIPE<span> UP</span></div>
+      <p className="pu-sub">one question · everyone answers · loudest laugh wins</p>
+
+      <div className="pu-card pu-share">
+        <div className="pu-lbl">share this room</div>
+        <div className="pu-link">pipeup.live/{g.roomCode}</div>
+        <button className="pu-btn pu-btn-coral pu-btn-block" onClick={copyLink}>
+          {copied ? "Copied! Send it 📲" : "Copy invite link"}
+        </button>
+        <div className="pu-hint">No login. No app. Just open the link.</div>
+      </div>
+
+      <div className="pu-section-lbl">In the room · {players.length}</div>
+      <div className="pu-players">
+        {players.map((p, i) => (
+          <div className="pu-player-chip" key={i}>
+            <Avatar name={p.name} palette={g.palette} size={28} />
+            <span>{p.isYou ? (g.name || "you") + " (you)" : p.name}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="pu-card pu-namecard">
+        <div className="pu-lbl">you're playing as</div>
+        <input
+          className="pu-input"
+          placeholder="type your name"
+          maxLength={18}
+          value={g.name}
+          onChange={(e) => actions.setName(e.target.value)}
+        />
+      </div>
+
+      <button className="pu-btn pu-btn-mint pu-btn-block pu-cta" onClick={actions.toPrompt}>
+        Start the round →
+      </button>
+    </div>
+  );
+}
+
+/* — 2. Pick Prompt — */
+
+function PickPrompt({ g, actions }) {
+  const [custom, setCustom] = useState("");
+  const [picked, setPicked] = useState(g.promptIndex ?? 0);
+  const shuffle = () => setPicked(Math.floor(Math.random() * PROMPTS.length));
+
+  const go = () => {
+    const text = custom.trim() || PROMPTS[picked];
+    actions.startWriting(text, picked);
+  };
+
+  return (
+    <div className="pu-screen">
+      <TopBar g={g} />
+      <h2 className="pu-h2">Pick the question</h2>
+      <p className="pu-sub-2">Everyone answers this one. Choose wisely 😏</p>
+
+      <div className="pu-prompt-list">
+        {PROMPTS.slice(0, 6).map((p, i) => (
+          <button
+            key={i}
+            className={"pu-prompt-opt" + (i === picked && !custom ? " on" : "")}
+            onClick={() => { setPicked(i); setCustom(""); }}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+
+      <div className="pu-row pu-row-gap">
+        <button className="pu-btn pu-btn-ghost pu-btn-sm" onClick={shuffle}>🎲 Shuffle</button>
+        <span className="pu-or">or write your own</span>
+      </div>
+      <input
+        className="pu-input pu-input-lg"
+        placeholder="Ask the team something…"
+        maxLength={120}
+        value={custom}
+        onChange={(e) => setCustom(e.target.value)}
+      />
+
+      <button className="pu-btn pu-btn-coral pu-btn-block pu-cta" onClick={go}>
+        Lock the question →
+      </button>
+    </div>
+  );
+}
+
+/* — 3. Write — */
+
+const ACCENTS = ["😂", "🔥", "💯", "🤔", "🫠", "😎", "🎯", "🤡"];
+
+function Write({ g, actions }) {
+  const [text, setText] = useState("");
+  const [accent, setAccent] = useState(null);
+
+  const submit = () => {
+    if (!text.trim() && !accent) return;
+    actions.submitAnswer(text.trim(), accent);
+  };
+
+  return (
+    <div className="pu-screen">
+      <TopBar g={g} />
+      <div className="pu-prompt-banner">
+        <div className="pu-lbl">the question</div>
+        <div className="pu-prompt-text">{g.promptText}</div>
+      </div>
+
+      <div className="pu-card pu-composer">
+        <textarea
+          className="pu-textarea"
+          placeholder="Pipe up… what's your answer?"
+          maxLength={180}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          autoFocus
+        />
+        <div className="pu-accentrow">
+          {ACCENTS.map((em) => (
+            <button
+              key={em}
+              className={"pu-accent" + (accent === em ? " on" : "")}
+              onClick={() => setAccent(accent === em ? null : em)}
+            >
+              {em}
+            </button>
+          ))}
+        </div>
+        <div className="pu-charcount">{text.length}/180</div>
+      </div>
+
+      <button className="pu-btn pu-btn-mint pu-btn-block pu-cta" onClick={submit}>
+        Lock it in 🔒
+      </button>
+      <p className="pu-hint pu-center">No takebacks. Make it count.</p>
+    </div>
+  );
+}
+
+/* — 4. Waiting — */
+
+function Waiting({ g, actions }) {
+  const players = [{ name: g.name || "you", isYou: true }, ...BOTS];
+  const [doneCount, setDoneCount] = useState(1);
+
+  useEffect(() => {
+    if (doneCount >= players.length) {
+      const t = setTimeout(() => actions.toReveal(), 700);
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(
+      () => setDoneCount((c) => c + 1),
+      700 + Math.random() * 700
+    );
+    return () => clearTimeout(t);
+  }, [doneCount]);
+
+  const allIn = doneCount >= players.length;
+
+  return (
+    <div className="pu-screen pu-screen-center">
+      <TopBar g={g} />
+      <div className="pu-megaemoji pu-bob">🎺</div>
+      <h2 className="pu-h2 pu-center">
+        {allIn ? "Everyone's in!" : `${doneCount} of ${players.length} piped up`}
+      </h2>
+      <p className="pu-sub-2 pu-center">
+        {allIn ? "Get ready to laugh…" : "Waiting on the slow typers 👀"}
+      </p>
+
+      <div className="pu-waitlist">
+        {players.map((p, i) => {
+          const done = i < doneCount;
+          return (
+            <div className={"pu-wait-chip" + (done ? " done" : "")} key={i}>
+              <Avatar name={p.name} palette={g.palette} size={26} />
+              <span>{p.isYou ? (g.name || "you") + " (you)" : p.name}</span>
+              <span className="pu-wait-status">{done ? "✓ locked in" : "typing…"}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* — 5. Reveal — */
+
+function Reveal({ g, actions }) {
+  const [idx, setIdx] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const last = idx >= g.answers.length - 1;
+  const a = g.answers[Math.min(idx, g.answers.length - 1)];
+  if (!a) return null;
+
+  const next = () => {
+    if (!flipped) { setFlipped(true); return; }
+    if (last) { actions.toVote(); return; }
+    setFlipped(false);
+    setTimeout(
+      () => setIdx((i) => Math.min(i + 1, g.answers.length - 1)),
+      g.revealSpeed === "fast" ? 80 : 220
+    );
+  };
+
+  return (
+    <div className="pu-screen pu-screen-center">
+      <TopBar g={g} />
+      <div className="pu-reveal-head">
+        <div className="pu-lbl">the answers · {idx + 1}/{g.answers.length}</div>
+        <div className="pu-dots">
+          {g.answers.map((_, i) => (
+            <span key={i} className={"pu-dot" + (i <= idx ? " on" : "")} />
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="pu-revealcard"
+        onClick={next}
+        style={{ background: flipped ? colorFor(a.name, g.palette) : "var(--card)" }}
+      >
+        <div className="pu-rc-face pu-rc-front" style={{ opacity: flipped ? 0 : 1 }}>
+          <div className="pu-flip-q">?</div>
+          <div className="pu-flip-tap">tap to reveal</div>
+        </div>
+        <div className="pu-rc-face pu-rc-back" style={{ opacity: flipped ? 1 : 0 }}>
+          {a.emoji && <div className="pu-flip-emoji">{a.emoji}</div>}
+          <div className="pu-flip-answer">{a.text || a.emoji}</div>
+          <div className="pu-flip-author">
+            — {a.isYou ? (g.name || "you") + " (you!)" : a.name}
+          </div>
+        </div>
+      </div>
+
+      <button className="pu-btn pu-btn-coral pu-btn-block pu-cta" onClick={next}>
+        {!flipped ? "Reveal 👀" : last ? "On to voting →" : "Next answer →"}
+      </button>
+    </div>
+  );
+}
+
+/* — 6. Vote — */
+
+function Vote({ g, actions }) {
+  const [choice, setChoice] = useState(null);
+
+  return (
+    <div className="pu-screen">
+      <TopBar g={g} />
+      <h2 className="pu-h2">Vote the funniest</h2>
+      <p className="pu-sub-2">One vote. Can't pick your own (nice try).</p>
+
+      <div className="pu-vote-list">
+        {g.answers.map((a) => {
+          const isOwn = a.isYou;
+          const sel = choice === a.id;
+          return (
+            <button
+              key={a.id}
+              disabled={isOwn}
+              className={"pu-vote-card" + (sel ? " sel" : "") + (isOwn ? " own" : "")}
+              onClick={() => !isOwn && setChoice(a.id)}
+            >
+              <div className="pu-vote-top">
+                <Avatar name={a.name} palette={g.palette} size={26} />
+                <span className="pu-vote-name">
+                  {isOwn ? (g.name || "you") + " (you)" : a.name}
+                </span>
+                {sel && <span className="pu-vote-check">✓</span>}
+                {isOwn && <span className="pu-vote-own-tag">your answer</span>}
+              </div>
+              <div className="pu-vote-text">
+                {a.emoji && <span className="pu-vote-emoji">{a.emoji}</span>}
+                {a.text || a.emoji}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <button
+        className="pu-btn pu-btn-mint pu-btn-block pu-cta"
+        disabled={!choice}
+        onClick={() => actions.castVote(choice)}
+      >
+        {choice ? "Lock in my vote 🗳️" : "Pick one to vote"}
+      </button>
+    </div>
+  );
+}
+
+/* — 7. Scoreboard — */
+
+function Scoreboard({ g, actions }) {
+  useEffect(() => {
+    if (g.motion) fireConfetti(g.palette);
+  }, []);
+
+  const ranked = [...g.answers].sort((a, b) => b.votes - a.votes);
+  const winner = ranked[0];
+
+  const totals = Object.entries(g.scores)
+    .map(([name, pts]) => ({ name, pts }))
+    .sort((a, b) => b.pts - a.pts);
+
+  return (
+    <div className="pu-screen">
+      <TopBar g={g} />
+      <div className="pu-winner-wrap">
+        <div className="pu-winner-crown">👑</div>
+        <div className="pu-lbl pu-center">Top of the Pile</div>
+        <div className="pu-card pu-winner-card"
+             style={{ background: colorFor(winner.name, g.palette) }}>
+          <div className="pu-winner-answer">
+            {winner.emoji && <span className="pu-vote-emoji">{winner.emoji}</span>}
+            {winner.text || winner.emoji}
+          </div>
+          <div className="pu-winner-by">
+            {winner.isYou ? (g.name || "you") + " 🎉" : winner.name}
+            {" · "}{winner.votes} vote{winner.votes === 1 ? "" : "s"}
+          </div>
+        </div>
+      </div>
+
+      <div className="pu-section-lbl">This round</div>
+      <div className="pu-roundlist">
+        {ranked.map((a, i) => (
+          <div className="pu-round-row" key={a.id}>
+            <span className="pu-round-rank">{rankTitle(i, ranked.length)}</span>
+            <span className="pu-round-name">{a.isYou ? "you" : a.name}</span>
+            <span className="pu-round-pts">+{a.votes * 100 + (i === 0 ? 250 : 0)}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="pu-section-lbl">🏅 Pile Points · all-time</div>
+      <div className="pu-leaderboard">
+        {totals.map((t, i) => (
+          <div className={"pu-lb-row" + (i === 0 ? " lead" : "")} key={t.name}>
+            <span className="pu-lb-medal">{["🥇", "🥈", "🥉"][i] || `#${i + 1}`}</span>
+            <span className="pu-lb-name">
+              {t.name === (g.name || "you") ? t.name + " (you)" : t.name}
+            </span>
+            <span className="pu-lb-pts">{t.pts.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="pu-row pu-row-gap pu-cta">
+        <button className="pu-btn pu-btn-ghost pu-btn-block" onClick={actions.newQuestion}>
+          New question
+        </button>
+        <button className="pu-btn pu-btn-coral pu-btn-block" onClick={actions.nextRound}>
+          Next round →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   pipeup-app — state machine, scoring, app shell
+   ============================================================ */
+
+const TWEAK_DEFAULTS = {
+  palette: "Original",
+  motion: true,
+  revealSpeed: "normal",
+  dotgrid: true,
+};
+
+function makeRoomCode() {
+  const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 4 }, () => c[Math.floor(Math.random() * c.length)]).join("");
+}
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const palette = PALETTES[t.palette] || PALETTES.Original;
+
+  const [phase, setPhase] = useState("lobby");
+  const [name, setName] = useState("");
+  const [roomCode] = useState(makeRoomCode);
+  const [round, setRound] = useState(1);
+  const [promptIndex, setPromptIndex] = useState(0);
+  const [promptText, setPromptText] = useState("");
+  const [answers, setAnswers] = useState([]);
+  const [scores, setScores] = useState(null);
+
+  const youName = () => name.trim() || "you";
+
+  function buildAnswers(text, accent, pIdx) {
+    const yours = { id: uid(), name: youName(), isYou: true, text, emoji: accent, votes: 0 };
+    const bots = BOTS.map((b, i) => ({
+      id: uid(),
+      name: b.name,
+      isYou: false,
+      text: botAnswerFor(pIdx ?? promptIndex, i),
+      emoji: Math.random() > 0.5 ? b.emoji : null,
+      votes: 0,
+    }));
+    const all = [yours, ...bots].sort(() => Math.random() - 0.5);
+    return all;
+  }
+
+  const actions = {
+    setName,
+    toPrompt: () => {
+      if (!scores) {
+        const init = { [youName()]: 0 };
+        BOTS.forEach((b) => (init[b.name] = 0));
+        setScores(init);
+      }
+      setPhase("prompt");
+    },
+    startWriting: (text, pIdx) => {
+      const idx = pIdx !== undefined ? pIdx : PROMPTS.indexOf(text);
+      setPromptIndex(idx >= 0 ? idx : 0);
+      setPromptText(text);
+      setPhase("write");
+    },
+    submitAnswer: (text, accent) => {
+      const all = buildAnswers(text, accent, promptIndex);
+      setAnswers(all);
+      setPhase("waiting");
+    },
+    toReveal: () => setPhase("reveal"),
+    toVote: () => setPhase("vote"),
+    castVote: (choiceId) => {
+      // tally votes: player's choice + each bot votes randomly (not for themselves)
+      const tallied = answers.map((a) => ({ ...a, votes: 0 }));
+      const byId = Object.fromEntries(tallied.map((a) => [a.id, a]));
+      if (byId[choiceId]) byId[choiceId].votes++;
+      BOTS.forEach((b) => {
+        const options = tallied.filter((a) => a.name !== b.name);
+        const pick = options[Math.floor(Math.random() * options.length)];
+        if (pick) byId[pick.id].votes++;
+      });
+      const ranked = [...tallied].sort((a, b) => b.votes - a.votes);
+      const winnerId = ranked[0].id;
+      const base = scores || (() => {
+        const init = { [youName()]: 0 };
+        BOTS.forEach((b) => (init[b.name] = 0));
+        return init;
+      })();
+      const next = { ...base };
+      tallied.forEach((a) => {
+        const pts = a.votes * 100 + (a.id === winnerId ? 250 : 0);
+        next[a.name] = (next[a.name] || 0) + pts;
+      });
+      setScores(next);
+      setAnswers(tallied);
+      setPhase("scoreboard");
+    },
+    newQuestion: () => { setRound((r) => r + 1); setAnswers([]); setPhase("prompt"); },
+    nextRound: () => {
+      setRound((r) => r + 1);
+      const idx = Math.floor(Math.random() * PROMPTS.length);
+      setPromptIndex(idx);
+      setPromptText(PROMPTS[idx]);
+      setAnswers([]);
+      setPhase("write");
+    },
+  };
+
+  const g = {
+    phase, name, roomCode, round, promptIndex, promptText,
+    answers, scores: scores || {},
+    palette, motion: t.motion, revealSpeed: t.revealSpeed,
+  };
+
+  const Screen = {
+    lobby: Lobby, prompt: PickPrompt, write: Write, waiting: Waiting,
+    reveal: Reveal, vote: Vote, scoreboard: Scoreboard,
+  }[phase];
+
+  const themeVars = {
+    "--coral": palette[0],
+    "--mint": palette[1],
+    "--sun": palette[2],
+  };
+
+  return (
+    <div className="pu-stage">
+      <div className={"pu-phone" + (t.dotgrid ? " dotgrid" : "")} style={themeVars}>
+        <div className="pu-notch" />
+        <div className="pu-phone-scroll" key={phase}>
+          <Screen g={g} actions={actions} />
+        </div>
+      </div>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Look" />
+        <TweakRadio
+          label="Palette" value={t.palette}
+          options={["Original", "Bubblegum", "Sunset"]}
+          onChange={(v) => setTweak("palette", v)}
+        />
+        <TweakToggle label="Dot-grid background" value={t.dotgrid}
+          onChange={(v) => setTweak("dotgrid", v)} />
+        <TweakSection label="Motion" />
+        <TweakToggle label="Confetti + animations" value={t.motion}
+          onChange={(v) => setTweak("motion", v)} />
+        <TweakRadio
+          label="Reveal speed" value={t.revealSpeed}
+          options={["normal", "fast"]}
+          onChange={(v) => setTweak("revealSpeed", v)}
+        />
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
