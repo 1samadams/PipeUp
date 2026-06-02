@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pipe Up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shrikhand&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="pu-stage">
+    <div class="pu-phone dotgrid">
+      <div class="pu-notch"></div>
+      <div class="pu-phone-scroll">
+        <div class="pu-screen">
+          <div class="pu-logo">PIPE<span> UP</span></div>
+          <p class="pu-sub">one question · everyone answers · loudest laugh wins</p>
+
+          <div class="pu-card pu-namecard">
+            <div class="pu-lbl">you're playing as</div>
+            <input id="name" class="pu-input" placeholder="type your name" maxlength="18" autocomplete="off" />
+          </div>
+
+          <div class="pu-stack">
+            <button id="create" class="pu-btn pu-btn-coral pu-btn-block">Create a room →</button>
+          </div>
+
+          <div class="pu-divider">or join</div>
+
+          <div class="pu-card pu-stack">
+            <div class="pu-lbl">got a room code?</div>
+            <input id="code" class="pu-input pu-input-lg" placeholder="e.g. WXYZ" maxlength="4"
+                   autocapitalize="characters" autocomplete="off" style="text-transform:uppercase" />
+            <button id="join" class="pu-btn pu-btn-mint pu-btn-block">Join room →</button>
+          </div>
+
+          <p class="pu-hint pu-center pu-cta">No login. No app. Just open the link.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Persist a stable clientId so a refresh re-seats the same player.
+    function clientId() {
+      let id = sessionStorage.getItem('pu_clientId');
+      if (!id) {
+        id = (crypto.randomUUID && crypto.randomUUID()) ||
+             (Date.now().toString(36) + Math.random().toString(36).slice(2));
+        sessionStorage.setItem('pu_clientId', id);
+      }
+      return id;
+    }
+    clientId();
+
+    const nameEl = document.getElementById('name');
+    const codeEl = document.getElementById('code');
+    nameEl.value = sessionStorage.getItem('pu_name') || '';
+
+    function saveName() {
+      sessionStorage.setItem('pu_name', nameEl.value.trim());
+    }
+
+    document.getElementById('create').onclick = () => {
+      saveName();
+      sessionStorage.setItem('pu_intent', 'create');
+      location.href = '/r/_new';
+    };
+
+    function doJoin() {
+      const code = codeEl.value.trim().toUpperCase();
+      if (code.length < 4) { codeEl.focus(); return; }
+      saveName();
+      sessionStorage.setItem('pu_intent', 'join');
+      location.href = '/r/' + code;
+    }
+    document.getElementById('join').onclick = doJoin;
+    codeEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') doJoin(); });
+  </script>
+</body>
+</html>
