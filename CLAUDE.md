@@ -55,6 +55,9 @@ docs/GAME-SPEC.md  Authoritative game spec + event contract
 - Share-link only. No public lobby, no matchmaking, no auth, no profiles.
 - Images are link-only (paste a URL). No file uploads.
 - One host per room; the host advances the game phase.
+- Abuse guards exist and are env-tunable: room/player caps, a per-IP create-room
+  rate limit, oversize-field trimming, and an idle-room sweep. See @docs/OPERATIONS.md
+  (covers both the in-app guards and the Railway $5 usage limit). Single replica only.
 
 ## Design
 
