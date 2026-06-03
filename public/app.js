@@ -110,11 +110,19 @@ const socket = io();
 const rawCode = decodeURIComponent(location.pathname.split('/r/')[1] || '').toUpperCase();
 let mode = (sessionStorage.getItem('pu_intent') === 'create' && rawCode === '_NEW') ? 'create' : 'join';
 let code = rawCode === '_NEW' ? null : rawCode;
+// Visiting /r/_new without a create intent (e.g. a stale forward-nav) has
+// nothing to create — send them home.
+if (rawCode === '_NEW' && mode !== 'create') location.replace('/');
+
+let joined = false;        // have we ever received room_state?
+let awaitingJoin = false;  // is a create/join in flight (so an error = room missing)?
 
 function enter() {
   if (mode === 'create') {
+    awaitingJoin = true;
     socket.emit('create_room', { clientId: CID, name: getName() });
   } else if (code && getName()) {
+    awaitingJoin = true;
     socket.emit('join_room', { clientId: CID, name: getName(), code });
   } else {
     renderNameGate();
@@ -123,11 +131,21 @@ function enter() {
 socket.on('connect', enter);
 socket.on('room_state', (s) => {
   if (!code) { code = s.code; history.replaceState(null, '', '/r/' + code); }
+  if (mode === 'create') sessionStorage.removeItem('pu_intent'); // created once; never re-create
   mode = 'join'; // after the first state we always rejoin (never re-create) on reconnect
+  joined = true;
+  awaitingJoin = false;
+  sessionStorage.setItem('pu_lastRoom', s.code); // for the landing "rejoin" button
   state = s;
   render();
 });
-socket.on('error', (e) => toast(e && e.message ? e.message : 'Something went wrong.'));
+socket.on('error', (e) => {
+  const msg = e && e.message ? e.message : 'Something went wrong.';
+  // If our own create/join just failed, the room is gone — show a real screen
+  // instead of a blank frame (covers reconnects after a Railway restart too).
+  if (awaitingJoin) { awaitingJoin = false; renderRoomGone(); return; }
+  toast(msg);
+});
 
 // ── toast ──
 let toastTimer = null;
@@ -178,6 +196,23 @@ function renderNameGate() {
     h('div', { class: 'pu-card pu-namecard' },
       h('div', { class: 'pu-lbl' }, "you're playing as"), input),
     h('button', { class: 'pu-btn pu-btn-mint pu-btn-block pu-cta', onclick: go }, 'Join the room →')));
+}
+
+// ── room gone (the room isn't on the server anymore — e.g. it restarted) ──
+function renderRoomGone() {
+  const fresh = () => {
+    sessionStorage.setItem('pu_intent', 'create');
+    sessionStorage.removeItem('pu_lastRoom');
+    location.href = '/r/_new';
+  };
+  mount(h('div', { class: 'pu-screen pu-screen-center' },
+    h('div', { class: 'pu-logo' }, 'PIPE', h('span', {}, ' UP')),
+    h('div', { class: 'pu-megaemoji pu-bob' }, icon('🦗', 56)),
+    h('h2', { class: 'pu-h2 pu-center' }, 'This room has ended'),
+    h('p', { class: 'pu-sub-2 pu-center' },
+      'Rooms are temporary — they vanish when the server restarts. Start a fresh one and share the new link.'),
+    h('button', { class: 'pu-btn pu-btn-coral pu-btn-block pu-cta', onclick: fresh }, 'Start a new room →'),
+    h('button', { class: 'pu-btn pu-btn-ghost pu-btn-block', onclick: () => (location.href = '/') }, 'Back to home')));
 }
 
 // ── the question picker (shared by lobby + scoreboard, host only) ──

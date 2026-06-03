@@ -18,6 +18,8 @@
           <div class="pu-logo">PIPE<span> UP</span></div>
           <p class="pu-sub">one question · everyone answers · loudest laugh wins</p>
 
+          <div id="rejoin" class="pu-stack" hidden></div>
+
           <div class="pu-card pu-namecard">
             <div class="pu-lbl">you're playing as</div>
             <input id="name" class="pu-input" placeholder="type your name" maxlength="18" autocomplete="off" />
@@ -58,6 +60,21 @@
     const nameEl = document.getElementById('name');
     const codeEl = document.getElementById('code');
     nameEl.value = sessionStorage.getItem('pu_name') || '';
+
+    // Offer a one-tap rejoin for the most recent room (if any).
+    const lastRoom = sessionStorage.getItem('pu_lastRoom');
+    if (lastRoom) {
+      const wrap = document.getElementById('rejoin');
+      const btn = document.createElement('button');
+      btn.className = 'pu-btn pu-btn-mint pu-btn-block';
+      btn.textContent = 'Rejoin room ' + lastRoom + ' →';
+      btn.onclick = () => {
+        sessionStorage.setItem('pu_intent', 'join');
+        location.href = '/r/' + lastRoom;
+      };
+      wrap.appendChild(btn);
+      wrap.hidden = false;
+    }
 
     function saveName() {
       sessionStorage.setItem('pu_name', nameEl.value.trim());
