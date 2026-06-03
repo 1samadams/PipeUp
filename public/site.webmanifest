@@ -1,0 +1,15 @@
+{
+  "name": "Pipe Up",
+  "short_name": "Pipe Up",
+  "description": "One question. Everyone answers. Loudest laugh wins.",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF3E0",
+  "theme_color": "#FF5A36",
+  "icons": [
+    { "src": "favicon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "favicon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "favicon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
