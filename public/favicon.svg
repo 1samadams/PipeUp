@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    
+  </defs>
+  
+  <rect x="20" y="22" width="62" height="62" rx="16" fill="#241A12"></rect>
+  
+  <rect x="14" y="14" width="62" height="62" rx="16" fill="#FF5A36" stroke="#241A12" stroke-width="4"></rect>
+  
+  <text x="47" y="62" font-size="56" fill="#241A12" text-anchor="middle">P</text>
+  <text x="45" y="60" font-size="56" fill="#FFF3E0" text-anchor="middle">P</text>
+</svg>
