@@ -32,16 +32,23 @@ try {
   const host = client('host');
   const guest = client('guest');
 
-  host.s.emit('create_room', { clientId: 'host', name: 'Hannah' });
+  host.s.emit('create_room', { clientId: 'secretCID-A', name: 'Hannah' });
   await until(() => host.state, 'host gets state');
   const code = host.state.code;
   ok('room code generated (4 chars)', /^[A-Z0-9]{4}$/.test(code));
   ok('host flagged isHost', host.state.isHost === true);
 
-  guest.s.emit('join_room', { clientId: 'guest', name: 'Gary', code });
+  guest.s.emit('join_room', { clientId: 'secretCID-B', name: 'Gary', code });
   await until(() => guest.state && guest.state.players.length === 2, 'guest joins');
   ok('guest is not host', guest.state.isHost === false);
   ok('roster has 2 players', host.state.players.length === 2);
+
+  // IDENTITY: the broadcast must never contain a secret clientId, and ids are
+  // public pids (so a player can't read the host's clientId and hijack the seat).
+  const idBlob = JSON.stringify(host.state) + JSON.stringify(guest.state);
+  ok('room_state never leaks a clientId', !idBlob.includes('secretCID-A') && !idBlob.includes('secretCID-B'));
+  ok('player ids are public pids', host.state.players.every((p) => /^p/.test(p.id)) &&
+     /^p/.test(host.state.you) && /^p/.test(host.state.hostId));
 
   // guest tries to host-act -> rejected, no phase change
   guest.s.emit('set_question', { text: 'sneaky' });

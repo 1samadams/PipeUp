@@ -62,6 +62,8 @@ const num = (name, fallback) => {
 const CREATE_LIMIT = num('CREATE_LIMIT', 10); // creates allowed per window per IP
 const CREATE_WINDOW_MS = num('CREATE_WINDOW_MS', 5 * 60 * 1000); // 5 min
 const SWEEP_INTERVAL_MS = num('SWEEP_INTERVAL_MS', 60 * 1000); // 1 min
+const EVENT_LIMIT = num('EVENT_LIMIT', 40); // socket events allowed per window per connection
+const EVENT_WINDOW_MS = num('EVENT_WINDOW_MS', 10 * 1000); // 10 s
 
 const createHits = new Map(); // ip -> { count, windowStart }
 
@@ -91,6 +93,19 @@ function pruneCreateHits(now = Date.now()) {
   }
 }
 
+// Per-connection event throttle covering every game action (not just room
+// creation), so one socket can't flood submit_answer / cast_vote / etc.
+function allowEvent(socket, now = Date.now()) {
+  const w = socket.data.ev;
+  if (!w || now - w.start > EVENT_WINDOW_MS) {
+    socket.data.ev = { start: now, count: 1 };
+    return true;
+  }
+  if (w.count >= EVENT_LIMIT) return false;
+  w.count += 1;
+  return true;
+}
+
 // Emit a freshly redacted room_state to every socket in the room.
 function broadcast(code) {
   const room = getRoom(code);
@@ -107,6 +122,7 @@ io.on('connection', (socket) => {
   // Wrap a host/player action: look up the room, run it, broadcast. Any thrown
   // validation error becomes an `error` toast for just this socket.
   const action = (fn) => (payload = {}) => {
+    if (!allowEvent(socket)) { socket.emit('error', { message: 'Slow down a moment.' }); return; }
     try {
       const room = getRoom(socket.data.code);
       if (!room) throw new Error('You are not in a room.');
@@ -134,6 +150,7 @@ io.on('connection', (socket) => {
 
   socket.on('join_room', ({ clientId, name, code } = {}) => {
     try {
+      if (!allowEvent(socket)) throw new Error('Slow down a moment.');
       const room = joinRoom({ clientId, name, code });
       socket.data.clientId = clientId;
       socket.data.code = room.code;
