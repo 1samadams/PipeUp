@@ -5,6 +5,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import express from 'express';
+import helmet from 'helmet';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 
@@ -19,7 +20,29 @@ const PUBLIC = path.join(__dirname, 'public');
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer);
+// Cap the realtime payload: game messages are tiny, so a 64 KB ceiling shrinks
+// the DoS surface well below the 1 MB default.
+const io = new Server(httpServer, { maxHttpBufferSize: 64 * 1024 });
+
+// Security headers. CSP is self-hosted everything except Google Fonts; inline
+// styles are allowed because the client sets element styles dynamically, but
+// scripts are 'self' only (no inline script anywhere, incl. the landing page).
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"], // anti-clickjacking
+    },
+  },
+}));
 
 app.use(express.static(PUBLIC));
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
